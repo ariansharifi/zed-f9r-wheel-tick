@@ -12,7 +12,7 @@ jobs:
           python-version: '3.12'
       - run: pip install pyinstaller -r requirment.txt
       - run: pyinstaller --onefile wheel-tick.py
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: windows-exe
           path: dist/*.exe
