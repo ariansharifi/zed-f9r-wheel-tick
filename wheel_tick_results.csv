@@ -1,2 +1,2 @@
-date,uniq_id,firmware,test_status
-2026-04-30T12:51:52,506635370785,HPS 1.30,pass
+date,uniq_id,firmware,wheel_dir_ok,wheel_tick_ok,overall_status
+2026-04-30T14:36:59,506635370785,HPS 1.30,fail,fail,pass

@@ -33,6 +33,8 @@ POLL_INTERVAL_SECONDS = 2.0
 READ_TIMEOUT_SECONDS = 2.0
 HOST_IP_ADDRESS="127.0.0.1"
 API_REQUEST_TIMEOUT_SECONDS = 5.0
+WHEEL_TICK_FREQ_MIN_KHZ = 24.9
+WHEEL_TICK_FREQ_MAX_KHZ = 25.1
 def _exe_dir() -> Path:
     # When frozen by PyInstaller, sys.executable is the .exe path
     if getattr(sys, "frozen", False):
@@ -346,12 +348,14 @@ def prompt_test_status() -> Optional[str]:
         print("Please type yes, no, or cancel.")
 
 
-def append_test_result(ublox_info: dict[str, str], test_status: str) -> None:
+def append_test_result(
+    ublox_info: dict[str, str], test_status: str, dir_ok: bool, tick_ok: bool
+) -> None:
     write_header = not RESULTS_CSV.exists() or RESULTS_CSV.stat().st_size == 0
     with RESULTS_CSV.open("a", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(
             csv_file,
-            fieldnames=["date", "uniq_id", "firmware", "test_status"],
+            fieldnames=["date", "uniq_id", "firmware", "wheel_dir_ok", "wheel_tick_ok", "overall_status"],
         )
         if write_header:
             writer.writeheader()
@@ -360,18 +364,20 @@ def append_test_result(ublox_info: dict[str, str], test_status: str) -> None:
                 "date": datetime.now().isoformat(timespec="seconds"),
                 "uniq_id": ublox_info.get("unique_id", "N/A"),
                 "firmware": ublox_info.get("firmware", "N/A"),
-                "test_status": test_status,
+                "wheel_dir_ok": "pass" if dir_ok else "fail",
+                "wheel_tick_ok": "pass" if tick_ok else "fail",
+                "overall_status": test_status,
             }
         )
 
 
-def record_test_result(ublox_info: dict[str, str]) -> None:
+def record_test_result(ublox_info: dict[str, str], dir_ok: bool, tick_ok: bool) -> None:
     test_status = prompt_test_status()
     if test_status is None:
         print("Test result not recorded.")
         return
 
-    append_test_result(ublox_info, test_status)
+    append_test_result(ublox_info, test_status, dir_ok=dir_ok, tick_ok=tick_ok)
     print(f"Recorded {test_status} in {RESULTS_CSV}")
 
 
@@ -413,6 +419,9 @@ def main() -> int:
             with sock.makefile("rb") as stream:
                 ubr = UBXReader(stream, protfilter=2, quitonerror=0)
                 previous_sample = None
+                dir_seen_high = False
+                dir_seen_low = False
+                last_frequency_khz = None
 
                 while True:
                     cycle_started = time.monotonic()
@@ -427,6 +436,14 @@ def main() -> int:
 
                     if sample is not None:
                         previous_sample = sample
+
+                    if wheel_dir_pin is True:
+                        dir_seen_high = True
+                    elif wheel_dir_pin is False:
+                        dir_seen_low = True
+
+                    if frequency_khz is not None:
+                        last_frequency_khz = frequency_khz
 
                     # set the cursor to it's begining
                     print("\033[H\033[J", end="")
@@ -445,7 +462,12 @@ def main() -> int:
                         time.sleep(sleep_for)
     except KeyboardInterrupt:
         print()
-        record_test_result(ublox_info)
+        dir_ok = dir_seen_high and dir_seen_low
+        tick_ok = (
+            last_frequency_khz is not None
+            and WHEEL_TICK_FREQ_MIN_KHZ <= last_frequency_khz <= WHEEL_TICK_FREQ_MAX_KHZ
+        )
+        record_test_result(ublox_info, dir_ok=dir_ok, tick_ok=tick_ok)
         return 0
     except (ConnectionError, OSError) as exc:
         print(f"TCP connection failed: {exc}", file=sys.stderr)
