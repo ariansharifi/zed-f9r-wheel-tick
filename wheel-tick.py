@@ -33,7 +33,13 @@ POLL_INTERVAL_SECONDS = 2.0
 READ_TIMEOUT_SECONDS = 2.0
 HOST_IP_ADDRESS="127.0.0.1"
 API_REQUEST_TIMEOUT_SECONDS = 5.0
-RESULTS_CSV = Path(__file__).with_name("wheel_tick_results.csv")
+def _exe_dir() -> Path:
+    # When frozen by PyInstaller, sys.executable is the .exe path
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+RESULTS_CSV = _exe_dir() / "wheel_tick_results.csv"
 
 @dataclass
 class WheelTickSample:
@@ -426,10 +432,9 @@ def main() -> int:
                     print("\033[H\033[J", end="")
                     print(ublox_info_line)
                     print(
-                        "timeTag={time_tag}, WT_PIN={wt_pin}, WD_PIN={wd_pin}, freq={freq} KHz".format(
+                        "timeTag={time_tag}, DIR_PIN={wd_pin}, freq={freq} KHz".format(
                             time_tag=sample.time_tag if sample else "N/A",
                             freq=format_frequency_khz(frequency_khz),
-                            wt_pin=format_pin_state(wheel_tick_pin),
                             wd_pin=format_pin_state(wheel_dir_pin),
                         ),
                         flush=True,
