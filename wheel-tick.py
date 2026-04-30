@@ -1,6 +1,9 @@
 import argparse
+import concurrent.futures
 import csv
+import ipaddress
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 import socket
@@ -26,8 +29,8 @@ WHEEL_TICK_VP = 65
 WHEEL_DIR_VP = 66
 WHEEL_TICK_DATA_TYPE = 10
 WHEEL_TICK_COUNT_MASK = (1 << 23) - 1
-POLL_INTERVAL_SECONDS = 1.0
-READ_TIMEOUT_SECONDS = 0.8
+POLL_INTERVAL_SECONDS = 2.0
+READ_TIMEOUT_SECONDS = 2.0
 HOST_IP_ADDRESS="127.0.0.1"
 API_REQUEST_TIMEOUT_SECONDS = 5.0
 RESULTS_CSV = Path(__file__).with_name("wheel_tick_results.csv")
@@ -36,6 +39,60 @@ RESULTS_CSV = Path(__file__).with_name("wheel_tick_results.csv")
 class WheelTickSample:
     time_tag: int
     tick_count: int
+
+
+def _probe_ubx_api(ip: str, port: int, timeout: float) -> bool:
+    url = f"http://{ip}:{port}/gnss_handler/api?ubxClass=MON&ubxID=MON-HW3"
+    try:
+        with urlopen(Request(url, method="GET"), timeout=timeout) as resp:
+            status = getattr(resp, "status", resp.getcode())
+            return 200 <= status < 300
+    except Exception:
+        return False
+
+
+def _get_local_ip() -> Optional[str]:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
+def discover_ubx_device(api_port: int = 7778) -> Optional[str]:
+    if _probe_ubx_api("127.0.0.1", api_port, timeout=1.0):
+        return "127.0.0.1"
+
+    local_ip = _get_local_ip()
+    if not local_ip or local_ip == "127.0.0.1":
+        return None
+
+    network = ipaddress.IPv4Network(f"{local_ip}/24", strict=False)
+    hosts = [str(h) for h in network.hosts() if str(h) != local_ip]
+    print(f"Scanning {network} for u-blox device...", flush=True)
+
+    found: list[str] = []
+    lock = threading.Lock()
+    stop_event = threading.Event()
+
+    def check(ip: str) -> None:
+        if stop_event.is_set():
+            return
+        if _probe_ubx_api(ip, api_port, timeout=2):
+            with lock:
+                found.append(ip)
+            stop_event.set()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
+        futures = {executor.submit(check, ip) for ip in hosts}
+        for _ in concurrent.futures.as_completed(futures):
+            if stop_event.is_set():
+                for f in futures:
+                    f.cancel()
+                break
+
+    return found[0] if found else None
 
 
 def parse_args(host_ip: str = HOST_IP_ADDRESS) -> argparse.Namespace:
@@ -322,7 +379,13 @@ def prompt_host_ip() -> str:
 
 
 def main() -> int:
-    host_ip = prompt_host_ip()
+    print("Looking for u-blox device on network...", flush=True)
+    host_ip = discover_ubx_device()
+    if host_ip:
+        print(f"Found u-blox device at {host_ip}", flush=True)
+    else:
+        print("Device not found automatically.", flush=True)
+        host_ip = prompt_host_ip()
     args = parse_args(host_ip)
 
     ublox_info = get_ublox_info(args.api_host, args.api_port)
