@@ -1,2 +1,2 @@
 date,uniq_id,firmware,wheel_dir_ok,wheel_tick_ok,overall_status
-2026-04-30T14:36:59,506635370785,HPS 1.30,fail,fail,pass
+2026-10-26T14:04:31,672260047804,HPS 1.40,fail,pass,pass

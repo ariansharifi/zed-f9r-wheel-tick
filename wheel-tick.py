@@ -348,11 +348,28 @@ def prompt_test_status() -> Optional[str]:
         print("Please type yes, no, or cancel.")
 
 
+def prompt_board_id() -> Optional[str]:
+    while True:
+        try:
+            answer = input("Enter board ID: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+
+        if not answer:
+            print("Board ID cannot be empty.")
+            continue
+        if any(ch in answer for ch in '/\\:*?"<>|') or answer.startswith("."):
+            print('Board ID cannot start with "." or contain any of: / \\ : * ? " < > |')
+            continue
+        return answer
+
+
 def append_test_result(
-    ublox_info: dict[str, str], test_status: str, dir_ok: bool, tick_ok: bool
+    results_csv: Path, ublox_info: dict[str, str], test_status: str, dir_ok: bool, tick_ok: bool
 ) -> None:
-    write_header = not RESULTS_CSV.exists() or RESULTS_CSV.stat().st_size == 0
-    with RESULTS_CSV.open("a", newline="", encoding="utf-8") as csv_file:
+    write_header = not results_csv.exists() or results_csv.stat().st_size == 0
+    with results_csv.open("a", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(
             csv_file,
             fieldnames=["date", "uniq_id", "firmware", "wheel_dir_ok", "wheel_tick_ok", "overall_status"],
@@ -377,8 +394,14 @@ def record_test_result(ublox_info: dict[str, str], dir_ok: bool, tick_ok: bool) 
         print("Test result not recorded.")
         return
 
-    append_test_result(ublox_info, test_status, dir_ok=dir_ok, tick_ok=tick_ok)
-    print(f"Recorded {test_status} in {RESULTS_CSV}")
+    board_id = prompt_board_id()
+    if board_id is None:
+        print("Test result not recorded.")
+        return
+
+    results_csv = _exe_dir() / f"{board_id}.csv"
+    append_test_result(results_csv, ublox_info, test_status, dir_ok=dir_ok, tick_ok=tick_ok)
+    print(f"Recorded {test_status} in {results_csv}")
 
 
 def prompt_host_ip() -> str:
